@@ -6,14 +6,10 @@ import (
 	"strconv"
 )
 
-// TODO rething typing of Pixel as int
-
-// ImageMatrix for Netpbm images.
-// Netpbm only supports color values up to 2^16 (0-65535).
-type ImageMatrix []ImageRow
-
-// ImageRow type alias for initialization of ImageMatrix.
-type ImageRow []uint16
+const (
+	ConvUintBase    = 10
+	ConvUintBitSize = 16
+)
 
 // Image
 type Image struct {
@@ -22,22 +18,15 @@ type Image struct {
 	Width       uint32
 	Height      uint32
 	MaxColor    uint16
-	IM          ImageMatrix
+	Mtx         Matrix
 }
 
-func fillMatrix(w, h uint32, toks <-chan string) ImageMatrix {
-	im := make(ImageMatrix, h)
-	var i, j uint32
-	for i = 0; i < h; i++ {
-		im[i] = make(ImageRow, w)
-		for j = 0; j < w; j++ {
-			// TODO move magic numbers to constants
-			p, _ := strconv.ParseUint(<-toks, 10, 16)
-			im[i][j] = uint16(p)
-		}
-	}
+func (img *Image) Get(x, y uint32) Pixel {
+	return img.Mtx.Get(x, y)
+}
 
-	return im
+func (img *Image) Set(x, y uint32, p Pixel) {
+	img.Mtx.Set(x, y, p)
 }
 
 // TODO Proper error handling
@@ -65,7 +54,7 @@ func Load(imgPath string) *Image {
 		Width:       uint32(w),
 		Height:      uint32(h),
 		MaxColor:    uint16(max),
-		IM:          im,
+		Mtx:         im,
 	}
 }
 
@@ -87,7 +76,7 @@ func Save(img *Image, fname string) {
 	var i, j uint32
 	for i = 0; i < img.Height; i++ {
 		for j = 0; j < img.Width; j++ {
-			_, err := f.WriteString(fmt.Sprintf("%d ", img.IM[i][j]))
+			_, err := f.WriteString(fmt.Sprintf("%d ", img.Get(i, j)))
 			if err != nil {
 				panic(err)
 			}
@@ -99,32 +88,33 @@ func Save(img *Image, fname string) {
 	}
 }
 
-func ShowMetadata(i *Image) {
-	fmt.Println(i.Name)
-	fmt.Println(i.MagicNumber)
-	fmt.Println(i.Width)
-	fmt.Println(i.Height)
-	fmt.Println(i.MaxColor)
+func ShowMetadata(img *Image) {
+	fmt.Println(img.Name)
+	fmt.Println(img.MagicNumber)
+	fmt.Println(img.Width)
+	fmt.Println(img.Height)
+	fmt.Println(img.MaxColor)
 }
 
 func ShowMatrix(img *Image) {
 	var i, j uint32
 	for i = 0; i < img.Height; i++ {
 		for j = 0; j < img.Width; j++ {
-			fmt.Print(img.IM[i][j], " ")
+			fmt.Print(img.Get(i, j), " ")
 		}
 		fmt.Println()
 	}
 }
 
+// Copy returns a deep copy of the image applied to.
 func (img *Image) Copy() *Image {
-	outMatrix := make(ImageMatrix, img.Height)
+	outMatrix := make(Matrix, img.Height)
 
 	var i, j uint32
 	for i = 0; i < img.Height; i++ {
-		outMatrix[i] = make(ImageRow, img.Width)
+		outMatrix[i] = make(Row, img.Width)
 		for j = 0; j < img.Width; j++ {
-			outMatrix[i][j] = img.IM[i][j]
+			outMatrix.Set(i, j, img.Get(i, j))
 		}
 	}
 
@@ -134,43 +124,54 @@ func (img *Image) Copy() *Image {
 		Width:       img.Width,
 		Height:      img.Height,
 		MaxColor:    img.MaxColor,
-		IM:          outMatrix,
+		Mtx:         outMatrix,
 	}
 }
 
 func (img *Image) Blur() *Image {
-	gaussian := ImageMatrix{
-		ImageRow{1, 4, 7, 4, 1},
-		ImageRow{4, 16, 26, 16, 4},
-		ImageRow{7, 26, 41, 26, 4},
-		ImageRow{4, 16, 26, 16, 4},
-		ImageRow{1, 4, 7, 4, 1},
+	gaussian := Matrix{
+		Row{1, 4, 7, 4, 1},
+		Row{4, 16, 26, 16, 4},
+		Row{7, 26, 41, 26, 4},
+		Row{4, 16, 26, 16, 4},
+		Row{1, 4, 7, 4, 1},
 	}
 	//gaussian := ImageMatrix{
-	//	ImageRow{1, 2, 1},
-	//	ImageRow{2, 4, 2},
-	//	ImageRow{1, 2, 1},
+	//	Row{1, 2, 1},
+	//	Row{2, 4, 2},
+	//	Row{1, 2, 1},
 	//}
 
 	return img.Conv(gaussian)
 }
 
 // TODO rewrite convolution and ImageMatrix for use as kernel
-func (img *Image) Conv(kernel ImageMatrix) *Image {
+// Conv convolves the image `img` with the given `kernel`.
+// The `kernel` must be of odd, quadratic shape e.g. 3x3, 5x5, 17x17 etc.
+func (img *Image) Conv(kernel Matrix) *Image {
+	if len(kernel)%2 == 0 || len(kernel) != len(kernel[0]) {
+		panic("kernel must be of odd, quadratic shape like 3x3, 5x5, 17x17 etc.")
+	}
+
 	out := img.Copy()
 
 	kSize := len(kernel)
 
-	for i := kSize / 2; i < int(img.Height-uint32(kSize/2)); i++ {
-		for j := kSize / 2; j < int(img.Width-uint32(kSize/2)); j++ {
-			var p uint16
+	// sum kernel for later scaling since the kernel may only consist of integer values
+	// less than fractions
+	kSum := kernel.Sum()
+
+	for i := uint32(kSize / 2); i < img.Height-uint32(kSize/2); i++ {
+		for j := uint32(kSize / 2); j < img.Width-uint32(kSize/2); j++ {
+			var p Pixel
 			for m := -kSize / 2; m <= kSize/2; m++ {
 				for n := -kSize / 2; n <= kSize/2; n++ {
-					p = p + img.IM[uint32(i+m)][uint32(j+n)]*kernel[m+kSize/2][n+kSize/2]
+					p = p + img.Get(i+m, j+n)*kernel.Get(m+kSize/2, n+kSize/2)
+					fmt.Println(p)
 				}
 			}
 
-			out.IM[i][j] = p / 273
+			out.Set(i, j, p/Pixel(kSum))
 		}
 	}
 
