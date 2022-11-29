@@ -22,10 +22,12 @@ const (
 
 func main() {
 	imgPath := "./assets/lena.ascii.pgm"
+	//imgPath := "./assets/feep.ascii.pgm"
 
 	// run scanner on image and fill image matrix
 	//img := Load(imgPath)
 	img := Load(imgPath)
-	ShowMetadata(img)
-	ShowMatrix(img)
+
+	out := img.Blur()
+	Save(out, "./out.pgm")
 }
