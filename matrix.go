@@ -3,15 +3,15 @@ package main
 import "strconv"
 
 // Pixel type as placeholder for size of pixel
-type Pixel uint16
+type Pixel float64
 
 // Row type alias for initialization of ImageMatrix.
 type Row []Pixel
 
-func (r Row) Sum() uint64 {
-	var sum uint64
+func (r Row) Sum() float64 {
+	var sum float64
 	for _, p := range r {
-		sum = sum + uint64(p)
+		sum = sum + float64(p)
 	}
 	return sum
 }
@@ -20,8 +20,8 @@ func (r Row) Sum() uint64 {
 // Netpbm only supports color values up to 2^16 (0-65535).
 type Matrix []Row
 
-func (m *Matrix) Sum() uint64 {
-	var sum uint64
+func (m *Matrix) Sum() float64 {
+	var sum float64
 	for _, r := range *m {
 		sum = sum + r.Sum()
 	}

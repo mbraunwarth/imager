@@ -161,7 +161,7 @@ func (img *Image) Conv(kernel Matrix) *Image {
 	// less than fractions
 	kSum := kernel.Sum()
 
-	for i := uint32(kSize / 2); i < img.Height-uint32(kSize/2); i++ {
+	for i := kSize / 2; i < img.Height-(kSize/2); i++ {
 		for j := uint32(kSize / 2); j < img.Width-uint32(kSize/2); j++ {
 			var p Pixel
 			for m := -kSize / 2; m <= kSize/2; m++ {
